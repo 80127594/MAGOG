@@ -46,3 +46,38 @@ Index(
     catalog_builds.c.date_published.desc(),
 )
 Index("idx_catalog_products_slug", catalog_products.c.slug)
+
+
+library_stores = Table(
+    "library_stores",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("name", String, nullable=False, unique=True),
+    Column("path", Text, nullable=False),
+    Column("is_active", Boolean, nullable=False, default=True),
+    Column("created_at", String, nullable=False),
+    Column("updated_at", String, nullable=False),
+)
+
+library_products = Table(
+    "library_products",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("store_id", Integer, ForeignKey("library_stores.id"), nullable=False),
+    Column("product_id", Integer, ForeignKey("catalog_products.id"), nullable=False),
+    Column("last_updated", String, nullable=True),
+    UniqueConstraint("store_id", "product_id", name="uix_store_product")
+)
+
+artifact_fingerprints = Table(
+    "artifact_fingerprints",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("hash_type", String, nullable=False),
+    Column("hash_value", String, nullable=False),
+    Column("exe_size_bytes", Integer, nullable=False),
+    Column("pe_product_name", String, nullable=True),
+    Column("pe_product_version", String, nullable=True),
+    Column("sig_timestamp", String, nullable=True),
+    UniqueConstraint("hash_type", "hash_value", name="uix_hash_type_value")
+)
