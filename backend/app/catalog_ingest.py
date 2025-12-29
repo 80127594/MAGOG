@@ -12,8 +12,10 @@ from . import db
 from . import catalog_products as catalog_products_mgr
 from . import catalog_builds as catalog_builds_mgr
 from . import catalog_dlcs as catalog_dlcs_mgr
+from . import catalog_installers as catalog_installers_mgr
 from .catalog_products import ProductRow
 from .catalog_builds import BuildRow
+from .catalog_installers import InstallerRow
 from .catalog_dlcs import DlcRow
 
 logger = logging.getLogger(__name__)
@@ -27,15 +29,17 @@ def _extract_product_row(data: Mapping[str, Any]) -> ProductRow | None:
     """
     builds = data.get("builds") or []
 
-    if data.get("store_state") == "coming-soon" or data.get("type") not in ("game", "dlc"):
+    if data.get("store_state") == "coming-soon" or data.get("type") not in ("game", "dlc", "pack"):
         return None
-    if data.get("type") == 'game' and len(builds) == 0:
-        # logger.debug(f"Ignoring game product ID {data.get('id')} with no builds")
-        return None
-    if data.get("type") == "dlc" and data.get("dl_installer") in (None, []):
-        # logger.debug(f"Ignoring non-installable DLC product ID {data.get('id')}")
-        return None
-
+    # if data.get("type") == 'game' and len(builds) == 0:
+    #     # logger.debug(f"Ignoring game product ID {data.get('id')} with no builds")
+    #     return None
+    # if data.get("type") == "dlc" and data.get("dl_installer") in (None, []):
+    #     # logger.debug(f"Ignoring non-installable DLC product ID {data.get('id')}")
+    #     return None
+    # if data.get("type") == "package" and data.get("dl_installer") in (None, []):
+    #     # logger.debug(f"Ignoring non-installable package product ID {data.get('id')}")
+    #     return None
     try:
         product_id = int(data["id"])
         product_type = str(data["type"])
@@ -101,8 +105,8 @@ def _extract_build_rows(data: Mapping[str, Any]) -> list[BuildRow]:
     rows: list[BuildRow] = []
     builds = data.get("builds") or []
     for b in builds:
-        if b.get("os") != "windows":
-            continue
+        # if b.get("os") != "windows":
+        #     continue
         try:
             build_id = int(b["id"])
             product_id = int(b.get("product_id", data["id"]))
@@ -127,16 +131,45 @@ def _extract_build_rows(data: Mapping[str, Any]) -> list[BuildRow]:
                 "generation": int(b.get("generation", 0)),
                 "version": b.get("version"),
                 "legacy_build_id": legacy_build_id,
+                "os": b.get("os"),
             }
         )
 
     return rows
+
+def _extract_installer_rows(data: Mapping[str, Any]) -> list[InstallerRow]:
+    rows: list[InstallerRow] = []
+    installers = data.get("dl_installer") or []
+    for inst in installers:
+        try:
+            installer_id = str(inst["id"])
+            product_id = int(data["id"])
+        except (KeyError, TypeError, ValueError):
+            # skip malformed installer entry
+            continue
+        language_data = inst.get("language") or {}
+        language_code = language_data.get("code")
+        os_field = inst.get("os")
+        version = inst.get("version")
+        rows.append(
+            {
+                "id": hash((product_id, installer_id)),
+                "product_id": product_id,
+                "installer_id": installer_id,
+                "language": language_code,
+                "os": os_field,
+                "version": version,
+            }
+        )
+    return rows
+
 
 def import_product_data(conn: Connection, data: Mapping[str, Any]) -> None:
     """Import a single product record from an already-parsed dict"""
     product = _extract_product_row(data)
     dlcLink = _extract_dlc_row(data)
     buildRows = _extract_build_rows(data)
+    installerRows = _extract_installer_rows(data)
     if not product:
         return
     catalog_products_mgr.upsert_product(conn, product)
@@ -144,6 +177,8 @@ def import_product_data(conn: Connection, data: Mapping[str, Any]) -> None:
         catalog_dlcs_mgr.update_dlc_link(conn, dlcLink)
     for build in buildRows:
         catalog_builds_mgr.upsert_build(conn, build)
+    for installer in installerRows:
+        catalog_installers_mgr.upsert_installer(conn, installer)
 
 def import_product_json(conn: Connection, json_path: Path) -> None:
     with json_path.open("r", encoding="utf-8") as f:

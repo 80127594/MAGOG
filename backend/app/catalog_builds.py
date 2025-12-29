@@ -15,6 +15,7 @@ class BuildRow(TypedDict):
     generation: int
     version: str
     legacy_build_id: Optional[int]
+    os: Optional[str]
 
 
 def upsert_build(conn: Connection, row: BuildRow) -> None:

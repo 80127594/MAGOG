@@ -38,6 +38,18 @@ catalog_builds = Table(
     Column("generation", Integer, nullable=False),
     Column("version", String, nullable=True),
     Column("legacy_build_id", Integer, nullable=True),
+    Column("os", String, nullable=True),
+)
+
+catalog_installers = Table(
+    "catalog_installers",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("product_id", Integer, ForeignKey("catalog_products.id"), nullable=False),
+    Column("installer_id", String, nullable=False),
+    Column("language", String, nullable=True),
+    Column("os", String, nullable=True),
+    Column("version", String, nullable=True),
 )
 
 Index(
