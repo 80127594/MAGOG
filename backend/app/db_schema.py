@@ -41,12 +41,20 @@ catalog_builds = Table(
     Column("os", String, nullable=True),
 )
 
+catalog_build_products = Table(
+    "catalog_build_products",
+    metadata,
+    Column("build_id", Integer, ForeignKey("catalog_builds.id"), primary_key=True),
+    Column("product_id", Integer, ForeignKey("catalog_products.id"), primary_key=True),
+    Column("product_name", String, nullable=True),
+    Column("temp_executable", String, nullable=True),
+)
+
 catalog_installers = Table(
     "catalog_installers",
     metadata,
-    Column("id", Integer, primary_key=True),
-    Column("product_id", Integer, ForeignKey("catalog_products.id"), nullable=False),
-    Column("installer_id", String, nullable=False),
+    Column("product_id", Integer, ForeignKey("catalog_products.id"), primary_key=True),
+    Column("installer_id", String, primary_key=True),
     Column("language", String, nullable=True),
     Column("os", String, nullable=True),
     Column("version", String, nullable=True),

@@ -13,9 +13,11 @@ from . import catalog_products as catalog_products_mgr
 from . import catalog_builds as catalog_builds_mgr
 from . import catalog_dlcs as catalog_dlcs_mgr
 from . import catalog_installers as catalog_installers_mgr
+from . import catalog_build_products as catalog_build_products_mgr
 from .catalog_products import ProductRow
 from .catalog_builds import BuildRow
 from .catalog_installers import InstallerRow
+from .catalog_build_products import BuildProductRow
 from .catalog_dlcs import DlcRow
 
 logger = logging.getLogger(__name__)
@@ -153,7 +155,6 @@ def _extract_installer_rows(data: Mapping[str, Any]) -> list[InstallerRow]:
         version = inst.get("version")
         rows.append(
             {
-                "id": hash((product_id, installer_id)),
                 "product_id": product_id,
                 "installer_id": installer_id,
                 "language": language_code,
@@ -163,6 +164,47 @@ def _extract_installer_rows(data: Mapping[str, Any]) -> list[InstallerRow]:
         )
     return rows
 
+
+def _extract_build_product_rows(data: Mapping[str, Any]) -> list[BuildProductRow]:
+    rows: list[BuildProductRow] = []
+    
+    try:
+        build_id = int(data["buildId"])
+    except (KeyError, TypeError, ValueError):
+        logger.warning(f"Skipping gen2 build manifest - invalid or missing buildId: {data.get('buildId')}")
+        return rows
+    
+    products = data.get("products") or []
+    if not products:
+        logger.debug(f"Gen2 build manifest {build_id} has no products")
+        return rows
+    
+    for idx, prod in enumerate(products):
+        try:
+            product_id = int(prod["productId"])
+        except (KeyError, TypeError, ValueError):
+            logger.warning(f"Skipping product[{idx}] in build {build_id} - invalid or missing productId: {prod.get('productId')}")
+            continue
+        
+        product_name = prod.get("name")
+        temp_executable = prod.get("temp_executable")
+        
+        rows.append(
+            {
+                "build_id": build_id,
+                "product_id": product_id,
+                "product_name": product_name,
+                "temp_executable": temp_executable,
+            }
+        )
+    
+    return rows
+
+
+def import_build_data_gen2(conn: Connection, data: Mapping[str, Any]) -> None:
+    rows = _extract_build_product_rows(data)
+    for row in rows:
+        catalog_build_products_mgr.upsert_build_product(conn, row)
 
 def import_product_data(conn: Connection, data: Mapping[str, Any]) -> None:
     """Import a single product record from an already-parsed dict"""
@@ -192,23 +234,41 @@ def import_multiple_products(conn: Connection, json_paths: Iterable[Path]) -> No
 
 
 def import_archive(conn: Connection, archive_path: Path) -> None:
-    """Import all product.json files from a .tar.xz archive"""
+    """Import product.json and gen2 build manifest (17-digit buildID.json) files from a .tar.xz archive"""
     archive_path = archive_path.expanduser()
     with tarfile.open(archive_path, mode="r:xz") as tf:
+        temp_v1_builds = 0
         for member in tf:
             if not member.isfile():
                 continue
-            if os.path.basename(member.name) != "product.json":
-                continue
+            
+            basename = os.path.basename(member.name)
             f = tf.extractfile(member)
             if f is None:
                 continue
+            
             try:
                 data = json.load(f)
             except json.JSONDecodeError:
-                # skip malformed product.json
+                # skip malformed JSON
                 continue
-            import_product_data(conn, data)
+            
+            if basename == "product.json":
+                import_product_data(conn, data)
+            elif basename.endswith(".json"):
+                name_without_ext = basename[:-5]  # .json
+                if name_without_ext.isdigit():
+                    version = data.get("version")
+                    if version == 2:
+                        # inject buildId from filename if missing in manifest
+                        if "buildId" not in data:
+                            data["buildId"] = int(name_without_ext)
+                            logger.debug(f"Injected buildId {name_without_ext} from filename (source: {member.name})")
+                        import_build_data_gen2(conn, data)
+                    elif version == 1:
+                        # TODO: implement gen1 build manifest import
+                        temp_v1_builds += 1
+        logger.debug(f"Skipped {temp_v1_builds} gen1 build manifests in {archive_path}")
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(add_help=False)

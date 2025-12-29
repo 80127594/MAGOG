@@ -8,7 +8,6 @@ from sqlalchemy.engine import Connection
 from .db_schema import catalog_installers
 
 class InstallerRow(TypedDict):
-    id: int
     product_id: int
     installer_id: str
     language: Optional[str]
@@ -19,7 +18,7 @@ class InstallerRow(TypedDict):
 def upsert_installer(conn: Connection, row: InstallerRow) -> None:
     stmt = insert(catalog_installers).values(**row)
     stmt = stmt.on_conflict_do_update(
-        index_elements=[catalog_installers.c.id],
+        index_elements=[catalog_installers.c.product_id, catalog_installers.c.installer_id],
         set_=row,
     )
     conn.execute(stmt)
